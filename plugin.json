@@ -1,0 +1,10 @@
+{
+    "name": "Ammo_indicator",
+    "version": "0.0.1",
+    "contactEmailAddress": "example.email@jagex.com",
+	 "hasSettingsIcon": true,
+  "requiredDependencies": {
+    "prettyui": 6398181
+  },
+  "optionalDependencies": {}
+}

@@ -1,0 +1,128 @@
+local settings = require("resources/database/settings")
+local events = require("resources/events/events")
+local L = require("resources/data/localize")
+
+local M = {}
+
+-- This and the next 4 settings files handles all the PrettyUI settings windows
+-- with lazy localization to fully support all officially supported languages
+
+
+
+
+function M.Create(page, options)  
+   
+
+    page:AddTitle(L.Get("general.displaySettingsTitle"))
+
+    page:AddText(L.Get("general.hideInCombatLabel"))
+    page:AddText("")
+    page:AddRadioButton({
+        { text = L.Get("general.hideInCombatOptions.yes"), value = "combat-visible" },
+        { text = L.Get("general.hideInCombatOptions.no"), value = "always-visible" },   
+    }, {
+        selectedValue = settings.Get("generalSettings.hideOutOfCombat"),
+        inline = true,
+
+        onChange = function(group, value)
+            settings.Set("generalSettings.hideOutOfCombat", value)
+        end,
+    })
+
+   
+    page:AddTitle(L.Get("general.scaleSettingsTitle"))
+	
+	page:AddText(L.Get("general.width"))
+	page:AddSlider({
+    min = 0,
+    max = 50,
+    value = settings.Get("generalSettings.rangedSettings.componentPositions.equippedAmmo.equippedAmmoSpriteWidth"),
+    step = 0.1,
+    onChange = function(_, value)
+         settings.Set(
+                "generalSettings.rangedSettings.componentPositions.equippedAmmo.equippedAmmoSpriteWidth",
+                value)
+    end,
+	})
+	
+	
+    page:AddText("")
+	 page:AddText(L.Get("general.height"))
+	
+	page:AddSlider({
+    min = 0,
+    max = 50,
+    value = settings.Get("generalSettings.rangedSettings.componentPositions.equippedAmmo.equippedAmmoSpriteHeight"),
+    step = 0.1,
+    onChange = function(_, value)
+         settings.Set(
+                "generalSettings.rangedSettings.componentPositions.equippedAmmo.equippedAmmoSpriteHeight",
+                value)
+    end,
+	})
+
+
+ page:AddText("")
+	
+    page:AddTitle(L.Get("general.colourSettingsTitle"))
+    page:AddText("")
+	
+page:AddColourPicker({
+        value = settings.Get("uiColours.backdropColour"),
+        alphaSlider = true,
+        inline = true,
+        buttonSize = 26,
+        windowTitle = L.Get("general.backdropColour.windowtitle"),
+        tooltip = L.Get("general.backdropColour.tooltip"),
+        acceptText = L.Get("general.backdropColour.acceptButton"),
+
+        onChange = function(_, colour)
+            settings.Set(
+                "uiColours.backdropColour",
+                string.format("0x%08X", colour)
+            )
+        end,
+    })
+    page:AddText({
+        text = L.Get("general.backdropColour.label"),
+        inline = true
+    })
+
+    page:AddText({
+        text = "",
+        inline = false,
+    })
+	
+
+    page:AddTitle(L.Get("general.positionSettingsTitle"))
+
+    page:AddCheckboxButton({
+        {
+            text = L.Get("general.lockPositionLabel"),
+            value = true,
+            selected = settings.Get("generalSettings.positionLocked")
+        },
+    }, {
+        onChange = function(_, _, _, selected)
+            settings.Set(
+                "generalSettings.positionLocked",
+                selected
+            )
+        end,
+    })
+
+
+    page:AddText(L.Get("general.lockPositionHelp"))
+
+    -- TODO: Allow users to reset their settings
+    -- page:AddTitle("Restore Default Settings")
+    -- page:AddSimpleButton(id.Sprite.CHAT_V2_FILTERS_ON_8, function()
+    -- settings.Reset()
+    -- end)
+	 page:AddText("")
+	
+    page:AddText(L.Get("general.credits"))
+
+end
+
+return M

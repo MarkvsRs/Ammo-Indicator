@@ -1,0 +1,194 @@
+
+local uiMain = require("resources/ui/ui")
+if not uiMain then
+    error("Failed to load UI module")
+end
+local ui = uiMain.CreateUI()
+
+
+function PluginShutdown()
+  if ui then ui:Destroy() end
+  ui = nil
+end
+
+
+
+--			local settings = require("resources/Database/settings")
+--			local rangedSettings = require("resources/Settings/ranged")
+--			local ammoNames = require("ammo")
+--			
+--			local GAUGE_COMPONENTS = {}
+--			
+--			local GAUGE_COMPONENT_POSITIONS = {
+--			    ranged = settings.Get("rangedSettings.componentPositions"),
+--			}
+--			
+--			local CreateUI = function()
+--			    local gameArea = ui.Interfaces:GetComponent(id.Component.TOPLEVEL_V2__GAME_AREA)
+--			    if not gameArea then
+--			    log("Can't find game area")
+--			    return
+--			    end
+--			
+--			    local jobGaugeLayer = createGaugeLayer(gameArea)
+--			    local overlaySprites = sprites.CreateSprites(jobGaugeLayer)
+--				
+--				
+--			    local rangedGaugeLayer = createGaugeLayer(jobGaugeLayer)
+--				
+--				
+--			local equippedAmmoSprite = createObjectSpriteIndicator(
+--			        rangedGaugeLayer,
+--			        GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo,
+--			        32,
+--			        32
+--			    )
+--			    equippedAmmoSprite.style = "ranged"
+--			    equippedAmmoSprite.position = GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo
+--			    equippedAmmoSprite.positionKey = "equippedAmmoSprite"
+--			    equippedAmmoSprite.width = 32
+--			    equippedAmmoSprite.height = 32
+--			    table.insert(GAUGE_COMPONENTS, equippedAmmoSprite)
+--			
+--			setObjectSpriteIndicatorPosition(
+--			            equippedAmmoSprite,
+--			            positions.ranged.equippedAmmo
+--			        )
+--					
+--			)
+--			end
+--			
+--			
+--			
+--			local events = {
+--			playerData = {
+--			ranged = {
+--			            activeAmmo = {
+--			                icon = 0,
+--			                name = '',
+--			                configName = '',
+--			            },
+--			            quiverAmmo = {
+--			                icon = 0,
+--			                name = '',
+--			                configName = '',
+--			            },
+--			            arrows = {
+--			                bikArrows = {
+--			                    stacks = 0,
+--			                    remainingDuration = 0,
+--			                },
+--			                wenArrows = {
+--			                    stacks = 0,
+--			                    remainingDuration = 0,
+--			                },
+--			                deathsporeArrows = {
+--			                    stacks = 0,
+--			                    remainingDuration = 0,
+--			                },
+--			                splinteringArrows = {
+--			                    stacks = 0,
+--			                    remainingDuration = 0,
+--			                }
+--			            }
+--					}
+--				}	
+--			}
+--			
+--			
+--			
+--			-- Code section 1
+--			-- Attach plugins to the game window
+--			game_window = ui.Interfaces:GetComponent(id.Component.TOPLEVEL_V2__PLUGIN_BUILD_LAYER_TOP)
+--			
+--			-- Code section 2
+--			-- Create a new group box for components
+--			local myGroupBox = ui.GroupBox.new(game_window)
+--			myGroupBox.stylesheetID = id.StyleSheet.DEFAULT
+--			myGroupBox:SetHeaderLayout(0,0,0,0,0)
+--			myGroupBox:SetSize(250,200)
+--			myGroupBox:SetPos(0,0,0.6,0.4)
+--			
+--			-- Code section 3
+--			-- Add some text
+--			local myText = ui.Text.new(myGroupBox)
+--			myText:SetSize(0,0,1.0,0.5)
+--			myText:SetPos(0,0)
+--			myText.content = "Hello world!"
+--			myText.font = id.Font.MUSEO_SANS_15PT_REGULAR
+--			myText:AlignTo(ui.AlignMode.CENTRE)
+--			
+--			-- Code section 4 version 2
+--			-- Add a button
+--			local myButton = ui.Button.new(myGroupBox)
+--			myButton:SetPos(0,0,0.0,0.5)
+--			myButton:SetSize(0,0,1.0,0.5)
+--			myButton.label = "Push this button"
+--			myButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
+--			
+--			-- Code section 5
+--			-- Make the button do something
+--			local function buttonPress()
+--			    myText.content = myText.content.."!"
+--			end
+--			myButton:Subscribe(ui.Hook.ONBUTTONPRESSED, buttonPress)
+--			
+--			
+--			-- Code section 6
+--			-- Get the config for the stray dog
+--			--local strayDogConfig = config.NPC.DOG_STRAY
+--			--local strayDogName = strayDogConfig.name
+--			--myText.content = strayDogConfig.name .. " is size " .. tostring(strayDogConfig.gridSize)
+--			
+--			
+--			
+--			-- Code section 6
+--			-- Get the config for the stray dog
+--			--local ArrowSlot = config.Inv.WORN.Ammo
+--			--local strayDogName = ArrowSlot.name
+--			--myText.content = ArrowSlot.name .. " is size " .. tostring(ArrowSlot.gridSize)
+--			
+--			
+--			
+--			-- Return the user's ammo, unless the user has a quiver in which case
+--			-- return the active ammo inside of the quiver instead.
+--			local function returnEquippedAmmo()
+--			    local worn = Inventory.Find(config.Inv.WORN)
+--			    local wornObj = worn:GetSlot(14)
+--			
+--			    if not wornObj or not wornObj.obj then
+--			        return nil
+--			    end
+--			
+--			    local equipped = wornObj.obj
+--			    local quiver = var.VarPlayer["QUIVER_ACTIVE_AMMO"]
+--			    local quiverValue = quiver and quiver.value
+--			
+--			    events.playerData.ranged.activeAmmo.name = equipped.name
+--			    events.playerData.ranged.activeAmmo.configName = equipped.configName
+--			    events.playerData.ranged.activeAmmo.id = equipped.id
+--			    AMMO_ID = events.playerData.ranged.activeAmmo.id
+--			    AMMO_NAME = events.playerData.ranged.activeAmmo.name
+--			   -- AMMO_DISPLAY_NAME = ammoNames[events.playerData.ranged.activeAmmo.configName]
+--				myText.content = AMMO_NAME
+--				
+--			    if quiverValue then
+--			        events.playerData.ranged.quiverAmmo.name = quiverValue.name
+--			        events.playerData.ranged.quiverAmmo.configName = quiverValue.configName
+--			        events.playerData.ranged.quiverAmmo.id = quiverValue.id
+--			        if quiverValue.name ~= "" then
+--			            AMMO_NAME = events.playerData.ranged.quiverAmmo.name
+--			            --AMMO_DISPLAY_NAME = ammoNames[events.playerData.ranged.quiverAmmo.configName]
+--			        end
+--			        if quiverValue.id ~= -1 then
+--			            AMMO_ID = events.playerData.ranged.quiverAmmo.id
+--			        end
+--			    end
+--			
+--			    return nil
+--			end
+--			
+--			-- Ammo can only be updated once every game tick, so only need to
+--			-- check once every game tick.
+--			Event.ServerLogic.Subscribe("updateAmmo", returnEquippedAmmo)
+

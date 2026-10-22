@@ -1,0 +1,753 @@
+local settings = require("resources/database/settings")
+local events = require("resources/events/events")
+local InterfaceMouse = require("resources/ui/mouse")
+local sprites = require("resources/ui/sprites")
+local ammoNames = require("resources/data/ammo")
+
+local generalSettings = require("resources/ui/settings/general")
+--local rangedSettings = require("resources/ui/settings/ranged")
+
+local M = {}
+
+local function colourToVector4(colour)
+    local colour = tonumber(colour)
+    local r = math.floor(colour / 0x1000000) % 0x100
+    local g = math.floor(colour / 0x10000) % 0x100
+    local b = math.floor(colour / 0x100) % 0x100
+    local a = colour % 0x100
+
+    return Vector4.new(
+        r / 255,
+        g / 255,
+        b / 255,
+        a / 255
+    )
+end
+
+-- ============================================================ 
+-- Constants / Configuration
+-- ============================================================
+
+-- Globals
+local OFFSET_POSITION_X = settings.Get("generalSettings.offsetPosition.x")
+local OFFSET_POSITION_Y = settings.Get("generalSettings.offsetPosition.y")
+local POSITION_LOCKED = settings.Get("generalSettings.positionLocked")
+local COMPONENT_EDITING = settings.Get("generalSettings.componentEditing")
+local isDraggingOverlay = false
+local overlayMouseCapture = nil
+local draggedComponent = nil
+local componentMouseCapture = nil
+local dragOffsetX = 0
+local dragOffsetY = 0
+
+local ACTIVE_COMBAT_STYLE = settings.Get('playerState.combatStyle')
+local HIDE_OUT_OF_COMBAT = settings.Get('generalSettings.hideOutOfCombat')
+
+local GAUGE_COMPONENTS = {}
+
+local GAUGE_COMPONENT_POSITIONS = {
+    ranged = settings.Get("generalSettings.rangedSettings.componentPositions"),
+}
+
+
+local READY_TEXT = tostring(settings.Get("generalSettings.readyText"))
+local SPRITE_READY_TEXT = tostring(settings.Get("generalSettings.spriteReadyText"))
+local DISPLAY_TIME_AS = settings.Get("generalSettings.displayTimeAs")
+local UI_SCALE = settings.Get("generalSettings.scale")
+
+local LARGE_FONT = id.Font.NOTO_SANS_13PT_BOLD_OUTLINE
+local MEDIUM_FONT = id.Font.NOTO_SANS_11PT_BOLD_OUTLINE
+local SMALL_FONT = id.Font.NOTO_SANS_09PT_REGULAR_OUTLINE
+
+local FONT_COLOUR = colourToVector4(settings.Get("fontColours.durationText"))
+local COOLDOWN_COLOUR = colourToVector4(settings.Get("fontColours.cooldownText"))
+local EXPIRING_COLOUR = colourToVector4(settings.Get("fontColours.expiringText"))
+local READY_COLOUR = colourToVector4(settings.Get("fontColours.readyText"))
+
+
+local BACKDROP_COLOUR = colourToVector4(settings.Get("uiColours.backdropColour"))
+
+local AMMO_ID = 53 -- Headless Arrow by default if no ammo is detected
+local AMMO_NAME = ''
+local AMMO_DISPLAY_NAME = nil
+
+
+local ABILITY_SHADOW_COLOUR = colourToVector4(settings.Get("uiColours.shadowColour"))
+local ABILITY_SHADOW_SIZE = 42
+local ABILITY_SHADOW_OFFSET = -1
+local abilityShadows = {}
+local backdrops = {}
+
+local fontTexts = {}
+
+
+local function scaleToFactor(number)
+    return math.floor(number * UI_SCALE )
+end
+
+local function createGaugeLayer(parent)
+    local layer = ui.Layer.new(parent)
+    layer:SetSize(600, 600, 1.0, 1.0)
+    return layer
+end
+
+
+local function createObjectSpriteIndicator(parent, position, width, height)
+    local layer = ui.Layer.new(parent)
+    layer:SetSize(scaleToFactor(32), scaleToFactor(32), 1.0, 1.0)
+
+
+    local backdrop = ui.Rectangle.new(layer)
+    backdrop:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X),
+        math.floor(position.y + OFFSET_POSITION_Y)
+    )
+    backdrop:SetSize(scaleToFactor(width), scaleToFactor(height))
+    backdrop.colour = BACKDROP_COLOUR
+    backdrop.fill = true
+    backdrop.outlineThickness = 50
+    table.insert(backdrops, backdrop)
+
+    local sprite = ui.Sprite.new(layer)   
+    sprite:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X + 5),
+        math.floor(position.y + OFFSET_POSITION_Y + 2)
+    )
+
+    sprite:SetSize(
+        scaleToFactor(width),
+        scaleToFactor(height)
+    )
+    sprite:MoveToFront()
+
+    local text = ui.Text.new(layer)
+    text:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X ),
+        math.floor(position.y +  OFFSET_POSITION_Y)
+    )
+    text:SetSize(1, 1)
+    text:MoveToFront()
+    text.content = AMMO_DISPLAY_NAME or AMMO_NAME
+    text.font = LARGE_FONT
+    text.colour = FONT_COLOUR
+    text.isShadowed = true
+    text.alignHorizontal = ui.AlignMode.CENTRE
+    text.alignVertical = ui.AlignMode.CENTRE
+    
+    local worn = Inventory.Find(config.Inv.WORN)
+    local wornObj = worn:GetSlot(14)
+
+    if not wornObj or not wornObj.obj then
+        return nil
+    end
+
+    local equipped = wornObj.obj
+    local quiver = var.VarPlayer["QUIVER_ACTIVE_AMMO"]
+    local quiverValue = quiver and quiver.value
+
+    events.playerData.ranged.activeAmmo.name = equipped.name
+    events.playerData.ranged.activeAmmo.icon = equipped.configName
+    events.playerData.ranged.activeAmmo.id = equipped.id
+
+    if quiverValue then
+        events.playerData.ranged.quiverAmmo.name = quiverValue.name
+        events.playerData.ranged.quiverAmmo.icon = quiverValue.configName
+        events.playerData.ranged.quiverAmmo.id = quiverValue.id
+    end
+
+    if wornObj and wornObj.obj then
+        if wornObj.obj.configName:find("ARROW", 1, true) then
+            sprite:SetAssociatedObject(events.playerData.ranged.activeAmmo.id + 4)
+        elseif wornObj.obj.configName:find("BOLT", 1, true) then
+            sprite:SetAssociatedObject(events.playerData.ranged.activeAmmo.id + 0)
+        elseif wornObj.obj.configName:find("QUIVER", 1, true) then
+            sprite:SetAssociatedObject(events.playerData.ranged.quiverAmmo.id)
+        end
+    end
+
+    return {
+        layer = layer,
+        backdrop = backdrop,
+        sprite = sprite,
+        text = text
+    }
+end
+
+local function setObjectSpriteIndicatorPosition(indicator, position ,textW, textH)
+
+    indicator.backdrop:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X),
+        math.floor(position.y + OFFSET_POSITION_Y)
+    )
+
+    indicator.sprite:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X),
+        math.floor(position.y + OFFSET_POSITION_Y)
+    )
+
+    indicator.text:SetPos(
+        math.floor(position.x + OFFSET_POSITION_X+ textW *2 ),
+        math.floor(position.y + OFFSET_POSITION_Y+ textH *2 )
+    )
+	
+	
+
+end
+
+
+
+
+local CreateUI = function()
+    local gameArea = ui.Interfaces:GetComponent(id.Component.TOPLEVEL_V2__GAME_AREA)
+    if not gameArea then
+    log("Can't find game area")
+    return
+    end
+
+    local jobGaugeLayer = createGaugeLayer(gameArea)
+    --local overlaySprites = sprites.CreateSprites(jobGaugeLayer)
+
+    
+    -- Ranged Overlay
+    local rangedGaugeLayer = createGaugeLayer(jobGaugeLayer)
+    
+
+    local equippedAmmoSprite = createObjectSpriteIndicator(
+        rangedGaugeLayer,
+        GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo,
+        	
+		GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteWidth,
+        GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteHeight
+		
+		
+		
+    )
+    equippedAmmoSprite.style = "ranged"
+    equippedAmmoSprite.position = GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo
+    equippedAmmoSprite.positionKey = "equippedAmmoSprite"
+    equippedAmmoSprite.width = GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteWidth
+    equippedAmmoSprite.height = GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteHeight
+    table.insert(GAUGE_COMPONENTS, equippedAmmoSprite)
+
+    
+
+    local function updateOverlayPositions()
+        local positions = GAUGE_COMPONENT_POSITIONS
+
+       
+
+        setObjectSpriteIndicatorPosition(
+            equippedAmmoSprite,
+            positions.ranged.equippedAmmo,
+			GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteWidth  ,
+        GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteHeight 
+        )
+
+
+    end
+
+
+local function beginMouseCapture()
+    if mouseCaptureComponent then
+        return true
+    end
+
+    local gameArea = ui.Interfaces:GetComponent(
+        id.Component.TOPLEVEL_V2__GAME_AREA
+    )
+
+    if not gameArea then
+        return false
+    end
+
+    InterfaceMouse.BeginScreenCapture(gameArea, 0, 0)
+
+    mouseCaptureComponent = gameArea
+
+    return true
+end
+
+local function endMouseCapture()
+    if not mouseCaptureComponent then
+        return
+    end
+
+    InterfaceMouse.EndCapture(mouseCaptureComponent)
+    mouseCaptureComponent = nil
+end
+
+local function getMousePosition()
+    if not mouseCaptureComponent then
+        return nil
+    end
+
+    return InterfaceMouse.GetPosition(
+        mouseCaptureComponent,
+        0,
+        0
+    )
+end
+
+local function getHoveredComponent(mousePosition)
+    if not Mouse.IsAvailable() or not mousePosition then
+        return nil
+    end
+
+    local combatStyle = events.playerData.combatStyle
+
+    for _, component in ipairs(GAUGE_COMPONENTS) do
+        if component.style == combatStyle or combatStyle == "all" then
+            local position = component.position
+
+            local x = position.x + OFFSET_POSITION_X
+            local y = position.y + OFFSET_POSITION_Y
+
+            local width = scaleToFactor(component.width)
+            local height = scaleToFactor(component.height)
+
+            if mousePosition.x >= x
+                and mousePosition.x <= x + width
+                and mousePosition.y >= y
+                and mousePosition.y <= y + height
+            then
+                return component
+            end
+        end
+    end
+
+    return nil
+end
+
+local settingsView
+Event.SettingsLayerReady.Subscribe("openSettingsWindow", function(event)
+     if settingsView then settingsView:Destroy() end
+
+     local parent = event.component
+
+    settingsView = prettyui.SimpleView.new(parent, {
+        width = parent.width,
+        height = parent.height,
+    })
+
+  local tabs = settingsView:AddTabs({ "General" }, { height = -20, heightAnchor = 1.0 })
+
+  local generalPage = tabs:GetPage(1)
+  local rangedPage = tabs:GetPage(2)
+
+  -- Page: General
+    generalSettings.Create(generalPage, {
+        setOffsetX = function(value)
+            OFFSET_POSITION_X = value
+        end,
+
+        setOffsetY = function(value)
+            OFFSET_POSITION_Y = value
+        end,
+
+        updateOverlayPositions = updateOverlayPositions,
+    })
+        
+   
+    --rangedSettings.Create(rangedPage
+   -- )
+end)
+
+local function updateGaugeVisibility()
+    
+    rangedGaugeLayer.hidden = true
+
+    local combatStyle = events.playerData.combatStyle
+
+    if  combatStyle == "ranged" then
+        rangedGaugeLayer.hidden = false
+    end
+end
+
+
+
+
+
+local function updateOverlays()
+
+    --if overlaySprites == nil then return end
+
+    local rangedSettings = settings.Get("generalSettings.rangedSettings")
+
+    local playerData = events.playerData
+    local ranged = playerData.ranged
+
+    if playerData.combatStyle == nil then
+        playerData.combatStyle = ACTIVE_COMBAT_STYLE
+    end
+
+    updateGaugeVisibility()
+
+    -- Everything here follows the floor of "check visibility setting"
+    -- and then what needs to be shown based on events.playerData
+
+    -- TODO: Potential optimization: Only update gauges when that combat style is the active style...
+    -- by adding `ACTIVE_COMBAT_STYLE == 'type' and` to each of these checks to shortcircuit
+    -- if that gauge isn't visible and thus doesn't need to be being updated.
+    
+    if playerData.inCombat ~= true and HIDE_OUT_OF_COMBAT == "combat-visible" then
+      
+        rangedGaugeLayer.hidden = true
+     end
+
+    
+
+    -- Ranged Gauge
+
+
+    -- The nil checks are necessary as the ammo does not update immediately
+    -- but rather, updates on the first game tick. So the first check returns
+    -- and every subsequent check works
+    if rangedSettings.componentVisibility["show-equipped-ammo"] then
+        equippedAmmoSprite.layer.hidden = false
+        local worn = Inventory.Find(config.Inv.WORN)
+        local wornObj = worn:GetSlot(14)
+
+        if wornObj and wornObj.obj then
+            if wornObj.obj.configName:find("ARROW", 1, true) then
+                -- Every stack of 5 is packed for arrows, at least that I saw
+                local AMMO_STACK_ID = tonumber(AMMO_ID) + 4
+                equippedAmmoSprite.sprite:SetAssociatedObject(AMMO_STACK_ID)
+                equippedAmmoSprite.text.content = AMMO_DISPLAY_NAME or AMMO_NAME--string.sub(AMMO_NAME, 1, 5)
+            elseif wornObj.obj.configName:find("BOLT", 1, true) then 
+                -- The same is not true of Bolts.
+                local AMMO_STACK_ID = tonumber(AMMO_ID)
+                equippedAmmoSprite.sprite:SetAssociatedObject(AMMO_STACK_ID)
+                equippedAmmoSprite.text.content = AMMO_DISPLAY_NAME or AMMO_NAME--string.sub(AMMO_NAME, 1, 5)
+            elseif wornObj.obj.configName:find("QUIVER", 1, true) then
+                -- If we have a quiver equipped, report the currently cycled ammo instead.
+                local QUIVER_AMMO_ID = tonumber(AMMO_ID)
+                if QUIVER_AMMO_ID == nil then return end
+                QUIVER_AMMO_ID = QUIVER_AMMO_ID + 4
+                equippedAmmoSprite.sprite:SetAssociatedObject(QUIVER_AMMO_ID)
+                equippedAmmoSprite.text.content = AMMO_DISPLAY_NAME or AMMO_NAME--string.sub(AMMO_NAME, 1, 5)
+            end
+        end
+    else
+        equippedAmmoSprite.layer.hidden = true
+    end
+	
+	equippedAmmoSprite.sprite:SetSize(
+        scaleToFactor(GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteWidth),
+        scaleToFactor(GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteHeight)
+    )
+	
+	equippedAmmoSprite.backdrop:SetPos(
+        math.floor( equippedAmmoSprite.sprite.x),
+        math.floor( OFFSET_POSITION_Y)
+    )
+    equippedAmmoSprite.backdrop:SetSize
+	(scaleToFactor(GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteWidth ), 
+	 scaleToFactor(GAUGE_COMPONENT_POSITIONS.ranged.equippedAmmo.equippedAmmoSpriteHeight)
+	)
+    equippedAmmoSprite.backdrop.colour = colourToVector4(settings.Get("uiColours.backdropColour"))
+	
+	equippedAmmoSprite.text:SetPos(
+        math.floor(equippedAmmoSprite.sprite.x -10 + equippedAmmoSprite.sprite.width /2.5),
+        math.floor(equippedAmmoSprite.sprite.y +  equippedAmmoSprite.sprite.height /2.5 )
+    )
+	
+	equippedAmmoSprite.text:SetSize(
+equippedAmmoSprite.sprite.width /1.5 ,
+equippedAmmoSprite.sprite.height /2
+	)
+    
+	
+	
+	
+	
+	
+
+    if POSITION_LOCKED or not Mouse.IsAvailable() or not Keyboard.IsAvailable() then
+        isDraggingOverlay = false
+
+        if draggedComponent then
+            draggedComponent = nil
+            dragOffsetX = 0
+            dragOffsetY = 0
+        end
+
+        endMouseCapture()
+    end
+
+    -- Allow for repositioning the gauges without clunky X,Y sliders.
+    -- TODO: Let users change the keybinds for this? Or change into a button
+    -- that is clicked and begins repositioning until you press a keybind to stop it.
+    -- But I prefer being able to unlock it and have it be freely movable.
+    -- I'll have to see which users prefer.
+    -- Allow repositioning the entire gauge overlay.
+    if Mouse.IsAvailable()
+        and Keyboard.IsAvailable()
+        and not POSITION_LOCKED
+        and not COMPONENT_EDITING
+    then
+        local shiftDown = Keyboard.IsShiftDown()
+        local ctrlDown = Keyboard.IsControlDown()
+
+        if shiftDown and ctrlDown then
+            if not isDraggingOverlay then
+                if beginMouseCapture() then
+                    isDraggingOverlay = true
+                end
+            end
+
+            if isDraggingOverlay then
+                local mousePosition = getMousePosition()
+
+                if mousePosition then
+                    OFFSET_POSITION_X = mousePosition.x
+                    OFFSET_POSITION_Y = mousePosition.y
+
+                    updateOverlayPositions()
+                end
+            end
+        elseif isDraggingOverlay then
+            isDraggingOverlay = false
+
+            endMouseCapture()
+
+            settings.Set(
+                "generalSettings.offsetPosition.x",
+                OFFSET_POSITION_X
+            )
+
+            settings.Set(
+                "generalSettings.offsetPosition.y",
+                OFFSET_POSITION_Y
+            )
+        end
+    end
+
+
+    -- Allow repositioning individual gauge components.
+    if Mouse.IsAvailable()
+        and Keyboard.IsAvailable()
+        and not POSITION_LOCKED
+        and COMPONENT_EDITING
+    then
+        local shiftDown = Keyboard.IsShiftDown()
+        local ctrlDown = Keyboard.IsControlDown()
+        local altDown = Keyboard.IsAltDown()
+
+        if shiftDown and ctrlDown then
+            if not mouseCaptureComponent then
+                if not beginMouseCapture() then
+                    return
+                end
+            end
+
+            local mousePosition = getMousePosition()
+
+            if mousePosition then
+                if draggedComponent == nil then
+                    draggedComponent = getHoveredComponent(mousePosition)
+
+                    if draggedComponent then
+                        local position = draggedComponent.position
+
+                        local componentX =
+                            position.x + OFFSET_POSITION_X
+
+                        local componentY =
+                            position.y + OFFSET_POSITION_Y
+
+                        dragOffsetX =
+                            mousePosition.x - componentX
+
+                        dragOffsetY =
+                            mousePosition.y - componentY
+                    end
+                end
+
+                if draggedComponent then
+                    local position = draggedComponent.position
+
+                    local newX =
+                        mousePosition.x
+                        - OFFSET_POSITION_X
+                        - dragOffsetX
+
+                    local newY =
+                        mousePosition.y
+                        - OFFSET_POSITION_Y
+                        - dragOffsetY
+
+                    if altDown then
+                        newX = snapToGrid(newX, 10)
+                        newY = snapToGrid(newY, 10)
+                    end
+
+                    position.x = newX
+                    position.y = newY
+
+                    updateOverlayPositions()
+                end
+            end
+        else
+            if draggedComponent then
+                local position = draggedComponent.position
+
+                settings.Set(
+                    draggedComponent.style
+                        .. "Settings.componentPositions."
+                        .. draggedComponent.positionKey
+                        .. ".x",
+                    position.x
+                )
+
+                settings.Set(
+                    draggedComponent.style
+                        .. "Settings.componentPositions."
+                        .. draggedComponent.positionKey
+                        .. ".y",
+                    position.y
+                )
+
+                draggedComponent = nil
+                dragOffsetX = 0
+                dragOffsetY = 0
+            end
+
+            endMouseCapture()
+        end
+    end
+
+end
+
+-- ServerLogic would result in a 1 tick delay - not sure this is too frequent to update everything
+Event.Logic.Subscribe("updateOverlays", updateOverlays)
+
+-- Return the user's ammo, unless the user has a quiver in which case
+-- return the active ammo inside of the quiver instead.
+local function returnEquippedAmmo()
+    local worn = Inventory.Find(config.Inv.WORN)
+    local wornObj = worn:GetSlot(14)
+
+    if not wornObj or not wornObj.obj then
+        return nil
+    end
+
+    local equipped = wornObj.obj
+    local quiver = var.VarPlayer["QUIVER_ACTIVE_AMMO"]
+    local quiverValue = quiver and quiver.value
+    events.playerData.ranged.activeAmmo.name = equipped.name
+    events.playerData.ranged.activeAmmo.configName = equipped.configName
+    events.playerData.ranged.activeAmmo.id = equipped.id
+    AMMO_ID = events.playerData.ranged.activeAmmo.id
+    AMMO_NAME = events.playerData.ranged.activeAmmo.name
+    AMMO_DISPLAY_NAME = ammoNames[events.playerData.ranged.activeAmmo.name]
+
+    if quiverValue then
+        events.playerData.ranged.quiverAmmo.name = quiverValue.name
+        events.playerData.ranged.quiverAmmo.configName = quiverValue.configName
+        events.playerData.ranged.quiverAmmo.id = quiverValue.id
+        if quiverValue.name ~= "" then
+            AMMO_NAME = events.playerData.ranged.quiverAmmo.name
+            AMMO_DISPLAY_NAME = ammoNames[events.playerData.ranged.quiverAmmo.name]
+			
+        end
+        if quiverValue.id ~= -1 then
+            AMMO_ID = events.playerData.ranged.quiverAmmo.id
+			
+        end
+    end
+
+    return nil
+end
+
+-- Ammo can only be updated once every game tick, so only need to
+-- check once every game tick.
+Event.ServerLogic.Subscribe("updateAmmo", returnEquippedAmmo)
+
+-- UI update subscriptions to changes in the user's settings
+-- Update the global variables and then on the next re-render
+-- aka the next `Logic.logicTick` everything is updated
+settings.Subscribe(
+    "generalSettings.positionLocked",
+    function(value)
+        POSITION_LOCKED = value
+    end
+)
+
+settings.Subscribe(
+    "generalSettings.justTheTip",
+    function(value)
+        JUST_TIPS = value
+    end
+)
+
+
+settings.Subscribe(
+    "generalSettings.hideOutOfCombat",
+    function(value)
+        HIDE_OUT_OF_COMBAT = value
+    end
+)
+
+settings.Subscribe(
+    "playerState.combatStyle",
+    function(value)
+        ACTIVE_COMBAT_STYLE = value
+    end
+)
+
+settings.Subscribe(
+    "fontSizes.largeFont",
+    function(value)
+        LARGE_FONT = value
+    end
+)
+
+settings.Subscribe(
+    "fontSizes.mediumFont",
+    function(value)
+        MEDIUM_FONT = value
+    end
+)
+
+settings.Subscribe(
+    "fontSizes.smallFont",
+    function(value)
+        SMALL_FONT = value
+    end
+)
+
+
+settings.Subscribe(
+    "generalSettings.scale",
+    function(value)
+        UI_SCALE = value
+    end
+)
+
+
+
+settings.Subscribe(
+    "uiColours.shadowColour",
+    function(colour)
+        ABILITY_SHADOW_COLOUR = colourToVector4(colour)
+
+        for _, shadow in ipairs(abilityShadows) do
+            shadow.colour = ABILITY_SHADOW_COLOUR
+        end
+    end
+)
+
+
+  return {
+    Destroy = function()
+      if settingsView then
+        settingsView:Destroy()
+        settingsView = nil
+      end
+    end,
+  }
+end
+
+M.CreateUI = CreateUI
+
+return M
